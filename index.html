@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>My Personal Planner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>html{font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial}</style>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center">
+  <div class="max-w-6xl w-full p-6">
+    <header class="flex items-center justify-between mb-6">
+      <div class="flex items-center gap-4">
+        <div class="w-12 h-12 bg-gradient-to-tr from-indigo-500 to-pink-500 rounded-lg flex items-center justify-center text-white text-xl font-bold">PP</div>
+        <div>
+          <h1 class="text-2xl font-semibold">My Personal Planner</h1>
+          <p class="text-sm text-slate-500">Simple, fast, and local — stores data in your browser</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <input id="selectedDate" type="date" class="border rounded-md px-3 py-2 bg-white" />
+        <button id="newTaskBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-md shadow hover:brightness-105">+ New Task</button>
+      </div>
+    </header>
+
+    <main class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <section class="md:col-span-1 bg-white rounded-2xl p-4 shadow">
+        <h2 class="font-semibold mb-3">Quick Add</h2>
+        <form id="taskForm" class="space-y-3">
+          <input id="title" type="text" placeholder="Task title" class="w-full border rounded px-3 py-2" required />
+          <textarea id="notes" rows="3" placeholder="Notes (optional)" class="w-full border rounded px-3 py-2"></textarea>
+          <div class="flex gap-2">
+            <select id="priority" class="flex-1 border rounded px-3 py-2">
+              <option value="low">Low priority</option>
+              <option value="medium" selected>Medium priority</option>
+              <option value="high">High priority</option>
+            </select>
+            <input id="time" type="time" class="border rounded px-3 py-2" />
+          </div>
+          <div class="flex gap-2">
+            <button type="submit" class="flex-1 bg-indigo-600 text-white py-2 rounded-md">Add task</button>
+            <button type="button" id="clearForm" class="flex-1 border rounded-md py-2">Clear</button>
+          </div>
+        </form>
+        <div class="mt-6 border-t pt-4 text-sm text-slate-600">
+          <p><strong id="totalTasks">0</strong> total tasks</p>
+          <p><span id="doneTasks">0</span> completed</p>
+          <div class="mt-3 flex gap-2">
+            <button id="exportBtn" class="text-xs px-3 py-1 border rounded">Export JSON</button>
+            <button id="clearAll" class="text-xs px-3 py-1 border rounded">Clear All</button>
+          </div>
+        </div>
+      </section>
+      <section class="md:col-span-2 bg-white rounded-2xl p-4 shadow">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="font-semibold">Tasks for <span id="dateLabel"></span></h2>
+          <div class="text-sm text-slate-500">Sort: <select id="sortBy" class="border rounded px-2 py-1">
+            <option value="time">Time</option>
+            <option value="priority">Priority</option>
+            <option value="created">Created</option>
+          </select></div>
+        </div>
+        <ul id="tasksList" class="space-y-3"></ul>
+        <div id="emptyState" class="text-center text-slate-400 mt-8">No tasks for this date. Add your first task!</div>
+      </section>
+    </main>
+    <footer class="mt-6 text-center text-xs text-slate-500">Made with ♥ — data saved locally in your browser (localStorage)</footer>
+  </div>
+  <script>
+    // Simple Planner JS
+    const selectedDateEl = document.getElementById('selectedDate');
+    const dateLabel = document.getElementById('dateLabel');
+    const taskForm = document.getElementById('taskForm');
+    const titleEl = document.getElementById('title');
+    const notesEl = document.getElementById('notes');
+    const timeEl = document.getElementById('time');
+    const priorityEl = document.getElementById('priority');
+    const tasksList = document.getElementById('tasksList');
+    const emptyState = document.getElementById('emptyState');
+    const totalTasks = document.getElementById('totalTasks');
+    const doneTasks = document.getElementById('doneTasks');
+    const newTaskBtn = document.getElementById('newTaskBtn');
+    const clearFormBtn = document.getElementById('clearForm');
+    const exportBtn = document.getElementById('exportBtn');
+    const clearAllBtn = document.getElementById('clearAll');
+    const sortBy = document.getElementById('sortBy');
+
+    // state
+    let tasks = {}; // { '2025-08-11': [ {id, title, notes, time, priority, done, createdAt} ] }
+
+    function todayISO() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth()+1).padStart(2,'0');
+      const dd = String(d.getDate()).padStart(2,'0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    // init
+    function load() {
+      const raw = localStorage.getItem('pp_tasks_v1');
+      tasks = raw ? JSON.parse(raw) : {};
+      selectedDateEl.value = todayISO();
+      renderForDate(selectedDateEl.value);
+    }
+
+    function save() {
+      localStorage.setItem('pp_tasks_v1', JSON.stringify(tasks));
+      updateStats();
+    }
+
+    function renderForDate(date) {
+      dateLabel.textContent = new Date(date).toDateString();
+      const list = tasks[date] ? [...tasks[date]] : [];
+      // sort
+      const s = sortBy.value;
+      if (s === 'time') list.sort((a,b) => (a.time||'') > (b.time||'') ? 1 : -1);
+      if (s === 'priority') {
+        const ranks = { high: 0, medium: 1, low: 2 };
+        list.sort((a,b) => ranks[a.priority] - ranks[b.priority]);
+      }
+      if (s === 'created') list.sort((a,b) => a.createdAt - b.createdAt);
+
+      tasksList.innerHTML = '';
+      if (!list.length) {
+        emptyState.style.display = 'block';
+      } else {
+        emptyState.style.display = 'none';
+        list.forEach(t => tasksList.appendChild(taskItemEl(t, date)));
+      }
+      updateStats();
+    }
+
+    function taskItemEl(task, date) {
+      const li = document.createElement('li');
+      li.className = 'flex items-start gap-3 p-3 rounded-md border';
+
+      const left = document.createElement('div');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = task.done;
+      checkbox.className = 'w-5 h-5';
+      checkbox.addEventListener('change', () => {
+        task.done = checkbox.checked;
+        save();
+        renderForDate(date);
+      });
+      left.appendChild(checkbox);
+
+      const body = document.createElement('div');
+      body.className = 'flex-1';
+      const h = document.createElement('div');
+      h.className = 'flex items-center justify-between gap-2';
+      const title = document.createElement('div');
+      title.innerHTML = `<div class=\"font-medium ${task.done ? 'line-through text-slate-400' : ''}\">${escapeHtml(task.title)}</div>`;
+      h.appendChild(title);
+      const meta = document.createElement('div');
+      meta.className = 'text-xs text-slate-500';
+      meta.innerText = `${task.time || ''} ${task.priority ? ' • ' + task.priority : ''}`.trim();
+      h.appendChild(meta);
+      body.appendChild(h);
+
+      if (task.notes) {
+        const p = document.createElement('div');
+        p.className = 'text-sm text-slate-600 mt-1';
+        p.textContent = task.notes;
+        body.appendChild(p);
+      }
+
+      const actions = document.createElement('div');
+      actions.className = 'flex gap-2';
+      const edit = document.createElement('button');
+      edit.className = 'text-xs px-2 py-1 border rounded';
+      edit.innerText = 'Edit';
+      edit.addEventListener('click', () => openEdit(task, date));
+
+      const del = document.createElement('button');
+      del.className = 'text-xs px-2 py-1 border rounded';
+      del.innerText = 'Delete';
+      del.addEventListener('click', () => {
+        if (!confirm('Delete this task?')) return;
+        tasks[date] = tasks[date].filter(x => x.id !== task.id);
+        if (tasks[date].length === 0) delete tasks[date];
+        save();
+        renderForDate(date);
+      });
+
+      actions.appendChild(edit);
+      actions.appendChild(del);
+
+      li.appendChild(left);
+      li.appendChild(body);
+      li.appendChild(actions);
+      return li;
+    }
+
+    function openEdit(task, date) {
+      titleEl.value = task.title;
+      notesEl.value = task.notes || '';
+      timeEl.value = task.time || '';
+      priorityEl.value = task.priority || 'medium';
+      // remove existing id marker on form
+      taskForm.dataset.editing = JSON.stringify({id: task.id, date});
+      titleEl.focus();
+    }
+
+    function escapeHtml(unsafe) {
+      return unsafe.replace(/[&<>\"']/g, function(m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#039;"})[m]; });
+    }
+
+    taskForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const d = selectedDateEl.value;
+      if (!d) return alert('Select a date');
+      const editing = taskForm.dataset.editing ? JSON.parse(taskForm.dataset.editing) : null;
+
+      if (!tasks[d]) tasks[d] = [];
+      if (editing) {
+        // find and update
+        const arr = tasks[editing.date] || [];
+        const idx = arr.findIndex(x => x.id === editing.id);
+        if (idx !== -1) {
+          const t = arr[idx];
+          t.title = titleEl.value.trim();
+          t.notes = notesEl.value.trim();
+          t.time = timeEl.value;
+          t.priority = priorityEl.value;
+          // if date changed, move
+          if (editing.date !== d) {
+            arr.splice(idx,1);
+            if (arr.length===0) delete tasks[editing.date];
+            tasks[d].push(t);
+          }
+        }
+        delete taskForm.dataset.editing;
+      } else {
+        const newTask = {
+          id: 't_' + Date.now(),
+          title: titleEl.value.trim(),
+          notes: notesEl.value.trim(),
+          time: timeEl.value,
+          priority: priorityEl.value,
+          done: false,
+          createdAt: Date.now()
+        };
+        tasks[d].push(newTask);
+      }
+
+      titleEl.value = '';
+      notesEl.value = '';
+      timeEl.value = '';
+      priorityEl.value = 'medium';
+      save();
+      renderForDate(d);
+    });
+
+    selectedDateEl.addEventListener('change', (e) => renderForDate(e.target.value));
+    newTaskBtn.addEventListener('click', () => titleEl.focus());
+    clearFormBtn.addEventListener('click', () => { titleEl.value=''; notesEl.value=''; timeEl.value=''; priorityEl.value='medium'; delete taskForm.dataset.editing; });
+    sortBy.addEventListener('change', () => renderForDate(selectedDateEl.value));
+
+    exportBtn.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(tasks, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'planner-tasks.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    clearAllBtn.addEventListener('click', () => {
+      if (!confirm('Remove ALL tasks from this browser?')) return;
+      localStorage.removeItem('pp_tasks_v1');
+      tasks = {};
+      renderForDate(selectedDateEl.value);
+    });
+
+    function updateStats() {
+      let total = 0, done = 0;
+      Object.values(tasks).forEach(arr => {
+        total += arr.length;
+        done += arr.filter(t => t.done).length;
+      });
+      totalTasks.textContent = total;
+      doneTasks.textContent = done;
+    }
+
+    // keyboard shortcut: n = new task focus
+    window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'n' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') { titleEl.focus(); } });
+
+    // load on start
+    load();
+  </script>
+</body>
+</html>
